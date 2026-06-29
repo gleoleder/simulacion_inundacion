@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>HidroDEM · Modelo hidrológico</title>
+<style>
+  :root{
+    --bg:#070d10;--panel:rgba(11,22,26,0.88);--line:rgba(110,170,180,0.18);
+    --ink:#d6e4e6;--muted:#7a9098;--water:#38d6f0;--warn:#e0a23f;--imp:#e89a45;--accent:#38d6f0;
+    --mono:ui-monospace,"SFMono-Regular","SF Mono",Menlo,Consolas,monospace;
+    --sans:"Inter",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+  #app{position:fixed;inset:0}
+  canvas{display:block;touch-action:none}
+  canvas.paint{cursor:crosshair}
+  .topbar{position:fixed;top:0;left:0;right:0;z-index:10;display:flex;align-items:center;gap:12px;
+    padding:11px 16px;background:linear-gradient(180deg,rgba(7,13,16,0.85),rgba(7,13,16,0));pointer-events:none}
+  .brand{display:flex;flex-direction:column;line-height:1.05}
+  .brand b{font-size:15px;letter-spacing:0.04em;font-weight:600}
+  .brand span{font-size:10px;color:var(--muted);font-family:var(--mono);letter-spacing:0.06em;text-transform:uppercase}
+  .tgl{margin-left:auto;pointer-events:auto;font-family:var(--sans);font-size:12px;font-weight:500;color:var(--ink);
+    border:1px solid var(--line);border-radius:999px;padding:7px 14px;background:rgba(11,22,26,0.75);cursor:pointer;display:flex;align-items:center;gap:7px}
+  .tgl .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 7px var(--accent)}
+  .panel{position:fixed;z-index:10;background:var(--panel);backdrop-filter:blur(14px);border:1px solid var(--line);border-radius:14px;
+    transition:opacity .22s, transform .22s}
+  .panel.hide{opacity:0;transform:translateY(8px) scale(.98);pointer-events:none}
+  .controls{left:16px;bottom:16px;width:286px;max-width:calc(100vw - 32px);padding:14px 16px 15px;
+    max-height:calc(100vh - 130px);overflow-y:auto}
+  .controls h2{font-size:10px;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.12em;color:var(--muted);
+    margin:13px 0 9px;display:flex;align-items:center;gap:8px}
+  .controls h2:first-child{margin-top:0}
+  .controls h2::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent)}
+  .seg{display:grid;gap:5px;margin-bottom:6px}
+  .seg.c4{grid-template-columns:repeat(4,1fr)}
+  .seg.c3{grid-template-columns:repeat(3,1fr)}
+  .seg.c2{grid-template-columns:repeat(2,1fr)}
+  .seg button{font-family:var(--sans);font-size:10.5px;color:var(--muted);background:rgba(255,255,255,0.03);
+    border:1px solid var(--line);border-radius:8px;padding:8px 2px;cursor:pointer;transition:.15s}
+  .seg button:hover{color:var(--ink);border-color:var(--accent)}
+  .seg button.on{color:var(--bg);background:var(--accent);border-color:var(--accent);font-weight:600;box-shadow:0 0 10px rgba(56,214,240,0.45)}
+  .paintbtn#eventBtn.on{background:var(--water);border-color:var(--water);color:#03171f;box-shadow:0 0 12px rgba(56,214,240,0.5)}
+  .row{margin-bottom:11px}
+  .row label{display:flex;justify-content:space-between;align-items:baseline;font-size:11.5px;margin-bottom:6px;color:var(--ink)}
+  .row label var{font-family:var(--mono);font-size:11px;color:var(--accent);font-style:normal}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;border-radius:3px;
+    background:rgba(255,255,255,0.12);outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+    background:var(--ink);border:2px solid var(--accent);cursor:pointer;box-shadow:0 0 0 3px rgba(56,214,240,0.12)}
+  input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:var(--ink);border:2px solid var(--accent);cursor:pointer}
+  .actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin:6px 0}
+  .actions button{font-family:var(--sans);font-size:11.5px;color:var(--ink);background:rgba(255,255,255,0.04);
+    border:1px solid var(--line);border-radius:9px;padding:9px 4px;cursor:pointer;transition:.15s;font-weight:500}
+  .actions button.primary{background:var(--water);border-color:var(--water);color:#03171f;font-weight:600}
+  .actions button.primary.paused{background:var(--warn);border-color:var(--warn)}
+  .paintbtn{width:100%;font-family:var(--sans);font-size:11.5px;color:var(--ink);background:rgba(255,255,255,0.04);
+    border:1px solid var(--line);border-radius:9px;padding:9px;cursor:pointer;transition:.15s;font-weight:500;
+    display:flex;align-items:center;justify-content:center;gap:8px}
+  .paintbtn .sw{width:9px;height:9px;border-radius:2px;background:var(--imp)}
+  .paintbtn.on{background:var(--imp);border-color:var(--imp);color:#1c1003;font-weight:600}
+  .paintbtn.on .sw{background:#1c1003}
+  .hint{margin-top:11px;font-size:10px;line-height:1.5;color:var(--muted);border-top:1px solid var(--line);padding-top:10px}
+  .hint b{color:var(--ink);font-weight:600}
+  .readout{right:16px;top:60px;width:166px;padding:12px 14px}
+  .readout h2{font-size:10px;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.12em;color:var(--muted);margin-bottom:10px}
+  .stat{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+  .stat .k{font-size:11px;color:var(--muted)}
+  .stat .v{font-family:var(--mono);font-size:13px;color:var(--ink)}
+  .stat .v small{font-size:9px;color:var(--muted);margin-left:2px}
+  .load{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
+    background:var(--bg);font-family:var(--mono);font-size:12px;color:var(--muted);letter-spacing:.1em;transition:opacity .4s}
+  @media (max-width:720px){.readout{top:54px;right:12px;width:146px;padding:10px 12px}
+    .controls{left:12px;right:12px;bottom:12px;width:auto;max-height:60vh}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="load" id="load">CONSTRUYENDO TERRENO…</div>
+<div class="topbar">
+  <div class="brand"><b>HidroDEM</b><span>Horton · Manning · escorrentía</span></div>
+  <button class="tgl" id="toggleUi"><span class="dot"></span>Ocultar</button>
+</div>
+
+<div class="panel readout" id="readout">
+  <h2>Estación</h2>
+  <div class="stat"><span class="k">Lluvia i</span><span class="v" id="rI">0<small>mm/h</small></span></div>
+  <div class="stat"><span class="k">Transcurrido</span><span class="v" id="rT">0<small>min</small></span></div>
+  <div class="stat"><span class="k">Acumulado</span><span class="v" id="rAcc">0<small>mm</small></span></div>
+  <div class="stat"><span class="k">Infiltr. f</span><span class="v" id="rF">0<small>mm/h</small></span></div>
+  <div class="stat"><span class="k">Encharcado</span><span class="v" id="rPond">0<small>%</small></span></div>
+  <div class="stat"><span class="k">Escorrentía</span><span class="v" id="rRun">0<small>%</small></span></div>
+  <div class="stat"><span class="k">FPS</span><span class="v" id="rFps">—</span></div>
+</div>
+
+<div class="panel controls" id="controls">
+  <h2>Terreno</h2>
+  <div class="seg c4" id="terrainSeg">
+    <button data-t="ciudad" class="on">Cerro·ciudad</button>
+    <button data-t="valle">Valle</button>
+    <button data-t="cuenca">Cuenca</button>
+    <button data-t="azar">Azar</button>
+    <button data-t="radial">Radial</button>
+    <button data-t="dendritico">Dendrítico</button>
+    <button data-t="parrilla">Enrejado</button>
+    <button data-t="pluma">Pinnado</button>
+  </div>
+
+  <h2>Precipitación</h2>
+  <div class="seg c2" id="rainSeg">
+    <button data-m="uniforme" class="on">Constante</button>
+    <button data-m="local">Localizada</button>
+  </div>
+  <div class="row"><label>Intensidad <var id="vRain">50 mm/h</var></label>
+    <input type="range" id="rain" min="0" max="100" value="42"></div>
+  <div class="row"><label>Viento (solo en el aire) <var id="vWind">calma</var></label>
+    <input type="range" id="wind" min="-100" max="100" value="0"></div>
+  <div class="row"><label>Tamaño de gota <var id="vSize">fino</var></label>
+    <input type="range" id="size" min="20" max="200" value="70"></div>
+  <div class="row"><label>Duración del evento <var id="vDur">∞ continua</var></label>
+    <input type="range" id="dur" min="0" max="240" value="0"></div>
+  <button class="paintbtn" id="eventBtn" style="margin-bottom:2px"><span class="sw" style="background:var(--water)"></span>Iniciar evento de lluvia</button>
+
+  <h2>Suelo</h2>
+  <div class="seg c3" id="soilSeg">
+    <button data-s="arena">Arena</button>
+    <button data-s="franco" class="on">Franco</button>
+    <button data-s="arcilla">Arcilla</button>
+  </div>
+  <div class="row"><label>Permeab. suelo desnudo <var id="vPerm">×1.0</var></label>
+    <input type="range" id="perm" min="5" max="1000" value="100"></div>
+  <div class="row"><label>Permeab. ciudad <var id="vPermCity">0.6 mm/h</var></label>
+    <input type="range" id="permCity" min="0" max="600" value="6"></div>
+  <div class="row"><label>Humedad antecedente <var id="vAnt">media</var></label>
+    <input type="range" id="ant" min="0" max="100" value="30"></div>
+
+  <div class="actions">
+    <button id="pauseBtn" class="primary">Pausa</button>
+    <button id="stormBtn">Aguacero</button>
+    <button id="resetBtn">Limpiar</button>
+  </div>
+  <button class="paintbtn" id="paintBtn"><span class="sw"></span>Marcar zona impermeable</button>
+  <div class="hint">Lluvia <b>constante</b> según la intensidad. Toca <b>Pausa</b> para congelar todo y ver cuánto se inundó; al <b>Reanudar</b> sigue lloviendo. Infiltración <b>Horton</b>, flujo <b>Manning</b> — el agua solo baja por la pendiente.</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+"use strict";
+const W=128,H=128,N=W*H,WORLD=64,HMAX=12,BASE=-7.0;
+const CS=WORLD/(W-1);
+
+const terrain=new Float32Array(N), flow=new Float32Array(N);
+const depth=new Float32Array(N), pdelta=new Float32Array(N);
+const cityImp=new Uint8Array(N), painted=new Int8Array(N), wetTime=new Float32Array(N);
+let cityMode=true;
+
+// ---- suelos: parámetros Horton (mm/h, h⁻¹) + Manning n ----
+const SOILS={
+  arena:{f0:150,fc:50,k:2.2,n:0.030},
+  franco:{f0:60,fc:13,k:2.2,n:0.060},
+  arcilla:{f0:15,fc:1.5,k:3.0,n:0.045}
+};
+let soil=SOILS.franco, antecedent=0.30, permMul=1.0, impInfil=0.6;
+const N_IMP=0.013;                          // Manning n superficie impermeable lisa
+
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;}}
+function makeNoise(seed){const rnd=mulberry32(seed),S=256,tbl=new Float32Array(S*S);
+  for(let i=0;i<S*S;i++)tbl[i]=rnd();const sm=t=>t*t*(3-2*t);
+  function v(x,y){const xi=Math.floor(x),yi=Math.floor(y),fx=sm(x-xi),fy=sm(y-yi);
+    const a=tbl[(xi&255)+(yi&255)*S],b=tbl[((xi+1)&255)+(yi&255)*S],
+          c=tbl[(xi&255)+((yi+1)&255)*S],d=tbl[((xi+1)&255)+((yi+1)&255)*S];
+    return (a*(1-fx)+b*fx)*(1-fy)+(c*(1-fx)+d*fx)*fy;}
+  return function(x,y,oct){let amp=0.5,freq=1,sum=0,norm=0;
+    for(let o=0;o<oct;o++){sum+=amp*v(x*freq,y*freq);norm+=amp;amp*=0.5;freq*=2;}return sum/norm;};}
+
+function buildTerrain(kind){
+  cityMode=(kind==='ciudad');
+  const seed=kind==='azar'?(Math.random()*1e9|0):
+    ({ciudad:7,valle:11,cuenca:22,radial:5,dendritico:17,parrilla:31,pluma:44})[kind];
+  const fbm=makeNoise(seed);let mn=1e9,mx=-1e9;
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+    const u=x/(W-1),v=y/(H-1),nx=u*4,ny=v*4;let h;
+    if(kind==='ciudad'){const m=Math.pow(Math.max(0,1-(u*0.85+v*0.85)),1.4);
+      h=fbm(nx*1.1,ny*1.1,6)*m*13+(u+v)*0.6+fbm(nx*3,ny*3,4)*0.5*(0.4+m);}
+    else if(kind==='valle'){const center=0.5+0.20*Math.sin(v*Math.PI*2);const d=Math.abs(u-center);
+      h=fbm(nx,ny,5)*2.4+(1-v)*3.2-3.6*Math.exp(-Math.pow(d*7,2))+0.9*fbm(nx*2,ny*2,3);}
+    else if(kind==='cuenca'){const r=Math.hypot(u-0.5,v-0.5);h=fbm(nx,ny,5)*1.8+r*r*9.5-0.4;}
+    else if(kind==='radial'){
+      // RADIAL: cono volcánico — el agua escurre del centro hacia afuera en todas direcciones
+      const dx=u-0.5,dy=v-0.5,r=Math.hypot(dx,dy);const ang=Math.atan2(dy,dx);
+      const surcos=0.6*Math.cos(ang*9)*Math.exp(-r*3.0);   // barrancos radiales
+      h=(0.5-r)*16-surcos+fbm(nx*2.2,ny*2.2,5)*1.2;}
+    else if(kind==='dendritico'){
+      // DENDRÍTICO: pendiente regional suave + ruido => arroyos ramificados como árbol
+      const slope=(1-v)*7.0;const branch=Math.abs(fbm(nx*2.4,ny*2.4,6)-0.5)*7.0; // valles donde el ruido cruza 0.5
+      h=slope+branch+fbm(nx*5,ny*5,4)*0.6;}
+    else if(kind==='parrilla'){
+      // ENREJADO/PARRILLA: crestas paralelas + valle troncal perpendicular (terreno plegado)
+      const crestas=Math.abs(Math.sin(u*Math.PI*5))*4.5;   // sierras paralelas en X
+      const tronco=(1-v)*5.0-3.2*Math.exp(-Math.pow((u-0.5)*4,2)); // valle troncal recogiendo todo
+      h=crestas+tronco+fbm(nx*3,ny*3,4)*0.7;}
+    else if(kind==='pluma'){
+      // PINNADO/PLUMA: un valle central con tributarios en espina de pez
+      const eje=Math.abs(u-0.5);const valle=-3.4*Math.exp(-Math.pow(eje*7,2)); // canal central
+      const espinas=0.8*Math.abs(Math.sin(v*Math.PI*11))*Math.min(eje*3,1);    // costillas hacia el eje
+      h=(1-v)*6.5+eje*4.0+valle+espinas+fbm(nx*3,ny*3,4)*0.6;}
+    const i=y*W+x;terrain[i]=h;if(h<mn)mn=h;if(h>mx)mx=h;}
+  const span=(mx-mn)||1;for(let i=0;i<N;i++)terrain[i]=(terrain[i]-mn)/span*HMAX;
+  flow.fill(0);depth.fill(0);painted.fill(0);buildSoilMaps();
+}
+function buildSoilMaps(){for(let i=0;i<N;i++){const hn=terrain[i]/HMAX;
+  cityImp[i]=(cityMode&&hn<0.30)?1:0;wetTime[i]=antecedent*4;}}
+function isImp(i){return painted[i]||cityImp[i];}
+function nMan(i){return isImp(i)?N_IMP:soil.n;}
+function infilCap(i){ if(isImp(i))return impInfil;   // mm/h (ciudad/impermeable, ajustable)
+  const t=wetTime[i];return (soil.fc+(soil.f0-soil.fc)*Math.exp(-soil.k*t))*permMul;}
+
+function heightAt(wx,wz){let gx=(wx/WORLD+0.5)*(W-1),gy=(wz/WORLD+0.5)*(H-1);
+  if(gx<0)gx=0;else if(gx>W-1.001)gx=W-1.001;if(gy<0)gy=0;else if(gy>H-1.001)gy=H-1.001;
+  const ix=gx|0,iy=gy|0,fx=gx-ix,fy=gy-iy,i=iy*W+ix;
+  const a=terrain[i],b=terrain[i+1],c=terrain[i+W],d=terrain[i+W+1];
+  return (a*(1-fx)+b*fx)*(1-fy)+(c*(1-fx)+d*fx)*fy;}
+function cellOf(wx,wz){let ix=(wx/WORLD+0.5)*(W-1),iy=(wz/WORLD+0.5)*(H-1);
+  ix=ix<0?0:ix>W-1?W-1:ix;iy=iy<0?0:iy>H-1?H-1:iy;return (iy|0)*W+(ix|0);}
+function addFlow(wx,wz,a){const i=cellOf(wx,wz);flow[i]=Math.min(flow[i]+a,1.8);}
+
+// =================== RENDER ===================
+const app=document.getElementById('app');
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x070d10);
+scene.fog=new THREE.Fog(0x070d10,180,460);
+const camera=new THREE.PerspectiveCamera(44,innerWidth/innerHeight,0.1,1000);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,1.75));
+app.appendChild(renderer.domElement);
+
+function gridGeometry(){const pos=new Float32Array(N*3),uv=new Float32Array(N*2);
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){const k=y*W+x;
+    pos[k*3]=(x/(W-1)-0.5)*WORLD;pos[k*3+1]=0;pos[k*3+2]=(y/(H-1)-0.5)*WORLD;
+    uv[k*2]=x/(W-1);uv[k*2+1]=1-y/(H-1);}
+  const idx=[];for(let y=0;y<H-1;y++)for(let x=0;x<W-1;x++){const a=y*W+x,b=a+1,c=a+W,d=c+1;idx.push(a,c,b,b,c,d);}
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  g.setAttribute('uv',new THREE.BufferAttribute(uv,2));g.setIndex(idx);return g;}
+
+const terrainGeo=gridGeometry();
+const terrainMat=new THREE.MeshBasicMaterial({color:0xffffff});
+const terrainMesh=new THREE.Mesh(terrainGeo,terrainMat);scene.add(terrainMesh);
+
+function bakeTexture(){const TS=1024,cv=document.createElement('canvas');cv.width=cv.height=TS;
+  const ctx=cv.getContext('2d'),img=ctx.createImageData(TS,TS),d=img.data;
+  const stops=[[74,88,60],[100,96,62],[124,108,82],[150,140,120],[206,202,194]];
+  for(let py=0;py<TS;py++)for(let px=0;px<TS;px++){
+    const u=px/(TS-1),v=py/(TS-1),wx=(u-0.5)*WORLD,wz=(0.5-v)*WORLD;
+    const h=heightAt(wx,wz),hn=h/HMAX,e=CS;
+    const hx=(heightAt(wx+e,wz)-heightAt(wx-e,wz))/(2*e),hz=(heightAt(wx,wz+e)-heightAt(wx,wz-e))/(2*e);
+    let nx=-hx,ny=1,nz=-hz;const il=1/Math.hypot(nx,ny,nz);nx*=il;ny*=il;nz*=il;
+    let sh=nx*-0.45+ny*0.78+nz*0.43;sh=0.5+0.7*Math.max(0,sh);let r,g,b;
+    if(cityMode&&hn<0.30){const bs=27,gx=px%bs,gy=py%bs,street=(gx<3||gy<3);
+      if(street){r=158;g=158;b=156;}else{const id=(((px/bs)|0)*73856093 ^ ((py/bs)|0)*19349663)>>>0;const t=(id%40)/40;
+        r=118+t*64;g=110+t*58;b=102+t*52;if((id%7)===0){r=184;g=188;b=192;}else if((id%11)===0){r=96;g=104;b=86;}}}
+    else{const s=Math.min(hn,1)*(stops.length-1),i=Math.floor(s),f=s-i;const a=stops[i],c2=stops[Math.min(i+1,stops.length-1)];
+      r=a[0]+(c2[0]-a[0])*f;g=a[1]+(c2[1]-a[1])*f;b=a[2]+(c2[2]-a[2])*f;
+      const veg=(((px*2)|0)*12345 ^ ((py*2)|0)*6789)%13;if(hn<0.5&&veg===0){r*=0.8;g*=0.92;b*=0.78;}}
+    r*=sh;g*=sh;b*=sh;const o=(py*TS+px)*4;d[o]=r;d[o+1]=g;d[o+2]=b;d[o+3]=255;}
+  ctx.putImageData(img,0,0);const tex=new THREE.CanvasTexture(cv);tex.anisotropy=4;return tex;}
+
+let skirt=null;
+// === Falda con estratos geológicos PLEGADOS (estilo bloque-diagrama: anticlinales/sinclinales) ===
+// Shader que dibuja, por píxel, capas onduladas con texturas distintas (césped, cantos, conchas, arena).
+const skirtMat=new THREE.ShaderMaterial({side:THREE.DoubleSide,
+  vertexShader:`varying vec3 vW;varying float vSurf;
+    void main(){vW=position;vSurf=position.y;
+      gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+  fragmentShader:`precision highp float;varying vec3 vW;
+    // pliegue de los estratos: ondas suaves => anticlinales y sinclinales
+    float fold(vec2 p){return sin(p.x*0.16)*1.6 + cos(p.y*0.14)*1.3 + sin((p.x+p.y)*0.09)*0.8;}
+    float hash(vec2 p){return fract(sin(dot(p,vec2(41.3,289.1)))*43758.5453);}
+    // celdas: devuelve distancia al centro de la celda más cercana (para cantos/conchas)
+    float cells(vec2 p,out vec2 id){vec2 g=floor(p);vec2 f=fract(p);float md=9.0;vec2 mid=g;
+      for(int j=-1;j<=1;j++)for(int i=-1;i<=1;i++){vec2 o=vec2(float(i),float(j));
+        vec2 r=o+vec2(hash(g+o),hash(g+o+7.0))-f;float d=length(r);
+        if(d<md){md=d;mid=g+o;}}
+      id=mid;return md;}
+    void main(){
+      float Yf=vW.y + fold(vW.xz);              // altura plegada -> define la capa
+      // coordenada horizontal a lo largo de la pared (para texturas) usando la suma x+z
+      float u=(vW.x+vW.z)*0.5;
+      vec3 col;
+      if(Yf>7.0){                               // CÉSPED verde (estrato reciente)
+        col=mix(vec3(0.30,0.52,0.18),vec3(0.42,0.62,0.24),hash(floor(vW.xz*1.3)));
+        // pequeñas briznas
+        if(fract(u*2.0+hash(floor(vec2(u*2.0,0.0)))*1.0)<0.12) col*=0.82;
+      } else if(Yf>4.2){                        // TIERRA marrón con raicillas
+        col=vec3(0.40,0.27,0.15);
+        col*=0.9+0.2*hash(floor(vW.xz*2.5));
+      } else if(Yf>0.8){                        // CONGLOMERADO: cantos rodados beige
+        col=vec3(0.78,0.66,0.42);
+        vec2 id;float d=cells(vec2(u,Yf)*1.4,id);
+        float peb=smoothstep(0.45,0.18,d);      // canto
+        vec3 pc=mix(vec3(0.62,0.50,0.34),vec3(0.88,0.80,0.60),hash(id));
+        col=mix(col,pc,peb);
+        col*=mix(0.7,1.0,smoothstep(0.5,0.2,d)); // sombra entre cantos
+      } else if(Yf>-3.0){                       // CALIZA gris con conchas (semicírculos)
+        col=vec3(0.70,0.70,0.66);
+        vec2 id;float d=cells(vec2(u,Yf)*1.8,id);
+        float sh=smoothstep(0.30,0.20,abs(d-0.22)); // anillo = concha
+        col=mix(col,vec3(0.40,0.40,0.38),sh*0.8);
+      } else {                                  // ARENISCA naranja punteada (estrato antiguo)
+        col=vec3(0.88,0.58,0.34);
+        float dots=step(0.86,hash(floor(vec2(u,Yf)*6.0)));
+        col*=1.0-dots*0.25;
+        col*=0.92+0.08*hash(floor(vec2(u,Yf)*3.0));
+      }
+      // líneas oscuras de separación entre estratos
+      float edge=0.0;
+      edge+=smoothstep(0.18,0.0,abs(Yf-7.0));
+      edge+=smoothstep(0.18,0.0,abs(Yf-4.2));
+      edge+=smoothstep(0.18,0.0,abs(Yf-0.8));
+      edge+=smoothstep(0.18,0.0,abs(Yf+3.0));
+      col=mix(col,vec3(0.12,0.09,0.06),clamp(edge,0.0,1.0)*0.7);
+      gl_FragColor=vec4(col,1.0);}`});
+function buildSkirt(){if(skirt){scene.remove(skirt);skirt.geometry.dispose();}
+  const pos=[],idx=[];let vi=0;
+  function push(x,y,z){pos.push(x,y,z);}
+  function wall(getXZ,a,b){for(let t=a;t<b;t++){const p0=getXZ(t),p1=getXZ(t+1);
+    const t0=heightAt(p0[0],p0[1]),t1=heightAt(p1[0],p1[1]);
+    push(p0[0],t0,p0[1]);push(p0[0],BASE,p0[1]);push(p1[0],t1,p1[1]);push(p1[0],BASE,p1[1]);
+    idx.push(vi,vi+1,vi+2,vi+2,vi+1,vi+3);vi+=4;}}
+  const hw=WORLD/2;
+  wall(t=>[(t/(W-1)-0.5)*WORLD,-hw],0,W-1);wall(t=>[(0.5-t/(W-1))*WORLD,hw],0,W-1);
+  wall(t=>[-hw,(0.5-t/(H-1))*WORLD],0,H-1);wall(t=>[hw,(t/(H-1)-0.5)*WORLD],0,H-1);
+  push(-hw,BASE,-hw);push(hw,BASE,-hw);push(hw,BASE,hw);push(-hw,BASE,hw);   // fondo cerrado
+  idx.push(vi,vi+1,vi+2,vi,vi+2,vi+3);vi+=4;
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(pos),3));
+  g.setIndex(idx);
+  skirt=new THREE.Mesh(g,skirtMat);scene.add(skirt);}
+
+const flowGeo=gridGeometry();
+const aFlow=new Float32Array(N), aImp=new Float32Array(N);
+flowGeo.setAttribute('aFlow',new THREE.BufferAttribute(aFlow,1));
+flowGeo.setAttribute('aImp',new THREE.BufferAttribute(aImp,1));
+const flowMat=new THREE.ShaderMaterial({transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,
+  vertexShader:`attribute float aFlow;attribute float aImp;varying float vF;varying float vI;
+    void main(){vF=aFlow;vI=aImp;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+  fragmentShader:`precision highp float;varying float vF;varying float vI;
+    void main(){float w=clamp(vF,0.0,1.0);if(w<0.06&&vI<0.5)discard;
+      vec3 col=mix(vec3(0.05,0.30,0.46),vec3(0.18,0.70,0.90),w);float a=w*0.42;
+      if(vI>0.5){col=mix(col,vec3(0.92,0.55,0.20),0.45);a=max(a,0.07);}
+      gl_FragColor=vec4(col,a);}`});
+const flowMesh=new THREE.Mesh(flowGeo,flowMat);flowMesh.renderOrder=2;scene.add(flowMesh);
+
+const pondGeo=gridGeometry();const aDepth=new Float32Array(N);
+pondGeo.setAttribute('aDepth',new THREE.BufferAttribute(aDepth,1));
+const pondMat=new THREE.ShaderMaterial({transparent:true,depthWrite:false,
+  uniforms:{uCam:{value:new THREE.Vector3()}},
+  vertexShader:`attribute float aDepth;varying float vD;varying vec3 vW;
+    void main(){vD=aDepth;vec4 wp=modelMatrix*vec4(position,1.0);vW=wp.xyz;
+      gl_Position=projectionMatrix*viewMatrix*wp;}`,
+  fragmentShader:`precision highp float;varying float vD;varying vec3 vW;uniform vec3 uCam;
+    void main(){if(vD<0.03)discard;float t=clamp(vD/2.0,0.0,1.0);
+      vec3 col=mix(vec3(0.13,0.64,0.62),vec3(0.03,0.32,0.42),t);
+      vec3 V=normalize(uCam-vW);float fres=pow(1.0-clamp(V.y,0.0,1.0),3.0);col+=fres*0.20;
+      float a=clamp(0.66+t*0.28,0.0,0.96);gl_FragColor=vec4(col,a);}`});
+const pondMesh=new THREE.Mesh(pondGeo,pondMat);pondMesh.renderOrder=1;pondMesh.visible=false;scene.add(pondMesh);
+
+// paredes del cuerpo de agua → dan volumen a la inundación
+const MAXWALL=28000;
+const wallPos=new Float32Array(MAXWALL*6*3),wallBand=new Float32Array(MAXWALL*6),wallTop=new Float32Array(MAXWALL*6);
+const wallGeo=new THREE.BufferGeometry();
+wallGeo.setAttribute('position',new THREE.BufferAttribute(wallPos,3));
+wallGeo.setAttribute('aBand',new THREE.BufferAttribute(wallBand,1));
+wallGeo.setAttribute('aTop',new THREE.BufferAttribute(wallTop,1));
+wallGeo.setDrawRange(0,0);
+const wallMat=new THREE.ShaderMaterial({transparent:true,depthWrite:false,side:THREE.DoubleSide,
+  vertexShader:`attribute float aBand;attribute float aTop;varying float vB;varying float vT;
+    void main(){vB=aBand;vT=aTop;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+  fragmentShader:`precision highp float;varying float vB;varying float vT;
+    void main(){float t=clamp(vB/2.0,0.0,1.0);
+      vec3 col=mix(vec3(0.10,0.56,0.55),vec3(0.03,0.26,0.36),t);
+      float rim=smoothstep(0.84,1.0,vT);                 // arista oscura en la línea de agua
+      col=mix(col,vec3(0.0,0.04,0.06),rim*0.92);
+      float a=mix(0.84,0.99,rim);
+      gl_FragColor=vec4(col,a);}`});
+const wallMesh=new THREE.Mesh(wallGeo,wallMat);wallMesh.renderOrder=1;scene.add(wallMesh);
+const WTOP=[1,1,0,1,0,0];
+function quadW(w,ax,ay,az,bx,by,bz,cx,cy,cz,dx,dy,dz,band,isSide){
+  const P=wallPos,B=wallBand,T=wallTop,v=[ax,ay,az,bx,by,bz,cx,cy,cz,ax,ay,az,cx,cy,cz,dx,dy,dz];
+  for(let k=0;k<6;k++){P[(w+k)*3]=v[k*3];P[(w+k)*3+1]=v[k*3+1];P[(w+k)*3+2]=v[k*3+2];B[w+k]=band;T[w+k]=isSide?WTOP[k]:0;}
+  return w+6;}
+function buildWalls(){
+  let w=0;const sp=CS,lim=(MAXWALL-8)*6,off=0.03,hw=WORLD/2;
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+    const i=y*W+x,d=depth[i];if(d<0.03)continue;if(w>=lim)break;
+    const wx=(x/(W-1)-0.5)*WORLD,wz=(y/(H-1)-0.5)*WORLD,si=terrain[i]+d+off;
+    let x0=wx-sp/2,x1=wx+sp/2,z0=wz-sp/2,z1=wz+sp/2;
+    if(x0<-hw)x0=-hw;if(x1>hw)x1=hw;if(z0<-hw)z0=-hw;if(z1>hw)z1=hw;
+    w=quadW(w,x0,si,z0,x1,si,z0,x1,si,z1,x0,si,z1,d,0);   // TECHO plano del agua
+    let nb,ex,ez;
+    if(x<W-1){const n=i+1;nb=depth[n]>0.03?terrain[n]+depth[n]+off:terrain[n];ex=x1;}else{nb=terrain[i];ex=hw;}
+    if(si>nb+0.02){w=quadW(w,ex,si,z0,ex,si,z1,ex,nb,z1,ex,nb,z0,d,1);}
+    if(x>0){const n=i-1;nb=depth[n]>0.03?terrain[n]+depth[n]+off:terrain[n];ex=x0;}else{nb=terrain[i];ex=-hw;}
+    if(si>nb+0.02){w=quadW(w,ex,si,z1,ex,si,z0,ex,nb,z0,ex,nb,z1,d,1);}
+    if(y<H-1){const n=i+W;nb=depth[n]>0.03?terrain[n]+depth[n]+off:terrain[n];ez=z1;}else{nb=terrain[i];ez=hw;}
+    if(si>nb+0.02){w=quadW(w,x0,si,ez,x1,si,ez,x1,nb,ez,x0,nb,ez,d,1);}
+    if(y>0){const n=i-W;nb=depth[n]>0.03?terrain[n]+depth[n]+off:terrain[n];ez=z0;}else{nb=terrain[i];ez=-hw;}
+    if(si>nb+0.02){w=quadW(w,x1,si,ez,x0,si,ez,x0,nb,ez,x1,nb,ez,d,1);}
+  }
+  wallGeo.setDrawRange(0,w);wallGeo.attributes.position.needsUpdate=true;
+  wallGeo.attributes.aBand.needsUpdate=true;wallGeo.attributes.aTop.needsUpdate=true;}
+
+const ring=new THREE.Mesh(new THREE.RingGeometry(1,1.05,48),
+  new THREE.MeshBasicMaterial({color:0x38d6f0,transparent:true,opacity:0.45,side:THREE.DoubleSide}));
+ring.rotation.x=-Math.PI/2;ring.visible=false;scene.add(ring);
+
+function setHeights(){const tp=terrainGeo.attributes.position.array,fp=flowGeo.attributes.position.array;
+  for(let i=0;i<N;i++){tp[i*3+1]=terrain[i];fp[i*3+1]=terrain[i]+0.07;}
+  terrainGeo.attributes.position.needsUpdate=true;flowGeo.attributes.position.needsUpdate=true;}
+function refreshImp(){for(let i=0;i<N;i++)aImp[i]=painted[i]?1:0;flowGeo.attributes.aImp.needsUpdate=true;}
+function updatePond(){const pp=pondGeo.attributes.position.array;
+  for(let i=0;i<N;i++){aDepth[i]=depth[i];pp[i*3+1]=terrain[i]+depth[i]+0.03;}
+  pondGeo.attributes.position.needsUpdate=true;pondGeo.attributes.aDepth.needsUpdate=true;}
+
+// =================== GOTAS ===================
+const MAXP=6500;
+const px=new Float32Array(MAXP),py=new Float32Array(MAXP),pz=new Float32Array(MAXP);
+const vx=new Float32Array(MAXP),vz=new Float32Array(MAXP),vy=new Float32Array(MAXP);
+const st=new Int8Array(MAXP),tm=new Float32Array(MAXP),soak=new Float32Array(MAXP);
+const dPos=new Float32Array(MAXP*3),dCol=new Float32Array(MAXP*3),dA=new Float32Array(MAXP),dS=new Float32Array(MAXP);
+const dGeo=new THREE.BufferGeometry();
+dGeo.setAttribute('position',new THREE.BufferAttribute(dPos,3));
+dGeo.setAttribute('aColor',new THREE.BufferAttribute(dCol,3));
+dGeo.setAttribute('aAlpha',new THREE.BufferAttribute(dA,1));
+dGeo.setAttribute('aSize',new THREE.BufferAttribute(dS,1));
+const dMat=new THREE.ShaderMaterial({transparent:true,depthWrite:false,
+  vertexShader:`attribute vec3 aColor;attribute float aAlpha;attribute float aSize;varying vec3 vC;varying float vA;
+    void main(){vC=aColor;vA=aAlpha;vec4 mv=modelViewMatrix*vec4(position,1.0);
+      gl_PointSize=aSize*(255.0/-mv.z);gl_Position=projectionMatrix*mv;}`,
+  fragmentShader:`precision highp float;varying vec3 vC;varying float vA;
+    void main(){vec2 d=gl_PointCoord-vec2(0.5);float r=length(d);if(r>0.5)discard;
+      float edge=smoothstep(0.5,0.30,r);gl_FragColor=vec4(vC,vA*edge);}`});
+scene.add(new THREE.Points(dGeo,dMat));
+
+let raining=false,activeCount=Math.floor(MAXP*0.42),sizeMul=0.7,wind=0,iMMH=50;
+let rainMode='uniforme',stormX=0,stormZ=0;const stormR=WORLD*0.20;
+let eventActive=false,eventDurMin=0,elapsedMin=0,accumMM=0;   // evento de lluvia cronometrado
+const EPS=CS*0.7, VSCALE=11, VMAX=14, G=20;
+const HOURS_PER_SEC=0.6, INFK=0.05;       // aceleración hidrológica y escala de drenaje
+const C_FALL=[0.45,0.78,0.92],C_SLOW=[0.18,0.5,0.72],C_FAST=[0.4,0.85,0.98];
+
+function spawn(i){
+  if(rainMode==='local'){const a=Math.random()*6.2832,rr=Math.sqrt(Math.random())*stormR;
+    px[i]=stormX+Math.cos(a)*rr;pz[i]=stormZ+Math.sin(a)*rr;}
+  else{px[i]=(Math.random()-0.5)*WORLD;pz[i]=(Math.random()-0.5)*WORLD;}
+  py[i]=31+Math.random()*16;vx[i]=wind*0.15;vz[i]=0;vy[i]=-(6+Math.random()*4);st[i]=0;tm[i]=0;soak[i]=0;}
+
+function simulate(dt){let inflow=0;
+  for(let i=0;i<MAXP;i++){
+    if(i>=activeCount){if(st[i]!==-1){st[i]=-1;dA[i]=0;}continue;}
+    if(st[i]===-1){if(raining)spawn(i);else{dA[i]=0;continue;}}
+    if(st[i]===0){               // CAÍDA: el viento solo actúa en el aire
+      vy[i]-=G*dt;py[i]+=vy[i]*dt;px[i]+=wind*0.15*dt;
+      const th=heightAt(px[i],pz[i]);
+      if(py[i]<=th+0.06){py[i]=th+0.06;vy[i]=0;st[i]=1;tm[i]=0;vx[i]=0;vz[i]=0;}
+      dCol[i*3]=C_FALL[0];dCol[i*3+1]=C_FALL[1];dCol[i*3+2]=C_FALL[2];dA[i]=0.7;dS[i]=2.2*sizeMul;}
+    else if(st[i]===1){          // FLUJO SUPERFICIAL: Manning, estrictamente cuesta abajo
+      const hx=(heightAt(px[i]+EPS,pz[i])-heightAt(px[i]-EPS,pz[i]))/(2*EPS);
+      const hz=(heightAt(px[i],pz[i]+EPS)-heightAt(px[i],pz[i]-EPS))/(2*EPS);
+      const S=Math.hypot(hx,hz),ci=cellOf(px[i],pz[i]),f=infilCap(ci);
+      if(S<0.02){                                    // terreno casi plano: encharca y recicla
+        depth[ci]+=(f<3?0.22:0.05);addFlow(px[i],pz[i],0.16);st[i]=-1;dA[i]=0;spawn(i);continue;}
+      const hsheet=0.012+depth[ci]*0.05;             // tirante (m)
+      let v=(1/nMan(ci))*Math.pow(hsheet,0.6667)*Math.sqrt(S)*VSCALE;
+      if(v>VMAX)v=VMAX;else if(v<0.8)v=0.8;          // piso de velocidad: nunca se atasca
+      vx[i]=(-hx/S)*v;vz[i]=(-hz/S)*v;               // dirección = descenso máximo
+      px[i]+=vx[i]*dt;pz[i]+=vz[i]*dt;const half=WORLD/2;
+      if(px[i]<-half||px[i]>half||pz[i]<-half||pz[i]>half){st[i]=-1;dA[i]=0;spawn(i);continue;}
+      py[i]=heightAt(px[i],pz[i])+depth[ci]+0.05;
+      addFlow(px[i],pz[i],0.045);inflow++;
+      depth[ci]+=(f<3?0.02:0.004)*dt;                // donde casi no infiltra, deja lámina
+      soak[i]+=f*0.006*dt;                           // infiltración Horton (∝ permeabilidad)
+      tm[i]+=dt;
+      if(soak[i]>1){st[i]=-1;dA[i]=0;spawn(i);continue;}        // se infiltró
+      if(tm[i]>7){depth[ci]+=(f<3?0.18:0.04);st[i]=-1;dA[i]=0;spawn(i);continue;} // no infiltró → encharca y recicla
+      const ff=Math.min(v/VMAX,1);
+      dCol[i*3]=C_SLOW[0]+(C_FAST[0]-C_SLOW[0])*ff;dCol[i*3+1]=C_SLOW[1]+(C_FAST[1]-C_SLOW[1])*ff;dCol[i*3+2]=C_SLOW[2]+(C_FAST[2]-C_SLOW[2])*ff;
+      dA[i]=0.78;dS[i]=(2.6+ff*1.8)*sizeMul;}
+    dPos[i*3]=px[i];dPos[i*3+1]=py[i];dPos[i*3+2]=pz[i];}
+  return inflow;}
+
+function decayFlow(){const fast=0.95,slow=0.997;
+  for(let i=0;i<N;i++){const imp=isImp(i)?1:0.2;flow[i]*=(fast+(slow-fast)*imp);}}
+
+function relaxPond(dt,hstep){
+  for(let i=0;i<N;i++){
+    if(depth[i]>0.005||flow[i]>0.05){let w=wetTime[i]+hstep;wetTime[i]=w>8?8:w;}
+    // Drenaje del charco por infiltración: proporcional a la capacidad f.
+    // Suelo desnudo permeable (f alto) vacía el charco; ciudad impermeable (f≈0) lo retiene.
+    if(depth[i]>0){const f=infilCap(i);let dd=depth[i]-f*0.0035*dt;if(dd<0)dd=0;depth[i]=dd;}}
+  pdelta.fill(0);
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+    const i=y*W+x,d=depth[i];if(d<=0.001)continue;const si=terrain[i]+d;
+    let h0=0,h1=0,h2=0,h3=0,out=0,hh;
+    if(x>0){hh=si-(terrain[i-1]+depth[i-1]);if(hh>0){h0=hh;out+=hh;}}
+    if(x<W-1){hh=si-(terrain[i+1]+depth[i+1]);if(hh>0){h1=hh;out+=hh;}}
+    if(y>0){hh=si-(terrain[i-W]+depth[i-W]);if(hh>0){h2=hh;out+=hh;}}
+    if(y<H-1){hh=si-(terrain[i+W]+depth[i+W]);if(hh>0){h3=hh;out+=hh;}}
+    if(out<=0)continue;const move=(d<out?d:out)*0.25;
+    if(h0>0){let g=move*(h0/out);if(g>h0*0.5)g=h0*0.5;pdelta[i]-=g;pdelta[i-1]+=g;}
+    if(h1>0){let g=move*(h1/out);if(g>h1*0.5)g=h1*0.5;pdelta[i]-=g;pdelta[i+1]+=g;}
+    if(h2>0){let g=move*(h2/out);if(g>h2*0.5)g=h2*0.5;pdelta[i]-=g;pdelta[i-W]+=g;}
+    if(h3>0){let g=move*(h3/out);if(g>h3*0.5)g=h3*0.5;pdelta[i]-=g;pdelta[i+W]+=g;}}
+  for(let i=0;i<N;i++){let v=depth[i]+pdelta[i];depth[i]=v<0?0:v>7?7:v;}}
+
+// =================== cámara + pincel ===================
+let radius=86,theta=-0.85,phi=0.95;const target=new THREE.Vector3(0,1,0);
+function updateCam(){phi=Math.max(0.12,Math.min(1.46,phi));radius=Math.max(36,Math.min(170,radius));
+  camera.position.set(target.x+radius*Math.sin(phi)*Math.cos(theta),target.y+radius*Math.cos(phi),
+    target.z+radius*Math.sin(phi)*Math.sin(theta));camera.lookAt(target);}
+const ray=new THREE.Raycaster(),ndc=new THREE.Vector2();let paintMode=false;
+function paintAt(cx,cy){ndc.x=(cx/innerWidth)*2-1;ndc.y=-(cy/innerHeight)*2+1;ray.setFromCamera(ndc,camera);
+  const hit=ray.intersectObject(terrainMesh,false);if(!hit.length)return;const p=hit[0].point;
+  const gx=(p.x/WORLD+0.5)*(W-1),gy=(p.z/WORLD+0.5)*(H-1),R=5;
+  for(let dy=-R;dy<=R;dy++)for(let dx=-R;dx<=R;dx++){if(dx*dx+dy*dy>R*R)continue;
+    const ix=Math.round(gx)+dx,iy=Math.round(gy)+dy;if(ix<0||ix>=W||iy<0||iy>=H)continue;painted[iy*W+ix]=1;}
+  refreshImp();}
+let drag=false,painting=false,lx=0,ly=0;const elc=renderer.domElement;
+elc.addEventListener('pointerdown',e=>{if(paintMode){painting=true;paintAt(e.clientX,e.clientY);}
+  else{drag=true;lx=e.clientX;ly=e.clientY;}elc.setPointerCapture(e.pointerId);});
+elc.addEventListener('pointerup',()=>{drag=false;painting=false;});
+elc.addEventListener('pointermove',e=>{if(painting)paintAt(e.clientX,e.clientY);
+  else if(drag){theta-=(e.clientX-lx)*0.006;phi-=(e.clientY-ly)*0.006;lx=e.clientX;ly=e.clientY;updateCam();}});
+elc.addEventListener('wheel',e=>{e.preventDefault();radius+=e.deltaY*0.05;updateCam();},{passive:false});
+let pd=0;elc.addEventListener('touchmove',e=>{if(!paintMode&&e.touches.length===2){const dx=e.touches[0].clientX-e.touches[1].clientX,
+  dy=e.touches[0].clientY-e.touches[1].clientY,d=Math.hypot(dx,dy);if(pd){radius+=(pd-d)*0.12;updateCam();}pd=d;}},{passive:true});
+elc.addEventListener('touchend',()=>pd=0);
+window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+
+// =================== bucle ===================
+let frame=0,fpsT=performance.now(),fpsC=0;
+const rI=document.getElementById('rI'),rF=document.getElementById('rF'),
+      rPond=document.getElementById('rPond'),rRun=document.getElementById('rRun'),rFps=document.getElementById('rFps'),
+      rT=document.getElementById('rT'),rAcc=document.getElementById('rAcc');
+function fmtMin(m){if(m<60)return Math.round(m)+'<small>min</small>';
+  return (Math.floor(m/60))+'<small>h</small>'+Math.round(m%60)+'<small>min</small>';}
+function readouts(){let pc=0,rc=0,fs=0,fn=0;
+  for(let i=0;i<N;i+=3){if(depth[i]>0.05)pc++;if(flow[i]>0.15)rc++;if(!isImp(i)){fs+=infilCap(i);fn++;}}
+  const fAvg=fn?fs/fn:0;
+  rI.innerHTML=Math.round(raining?iMMH:0)+'<small>mm/h</small>';
+  rT.innerHTML=fmtMin(elapsedMin);
+  rAcc.innerHTML=Math.round(accumMM)+'<small>mm</small>';
+  rF.innerHTML=fAvg.toFixed(fAvg<10?1:0)+'<small>mm/h</small>';
+  rPond.innerHTML=Math.round(pc/(N/3)*100)+'<small>%</small>';
+  rRun.innerHTML=Math.round(rc/(N/3)*100)+'<small>%</small>';}
+function animate(){requestAnimationFrame(animate);
+  if(!paused){
+    if(rainMode==='local'){stormX+=wind*0.0016;stormZ+=0.012;
+      const h=WORLD/2;if(stormX>h)stormX=-h;if(stormX<-h)stormX=h;if(stormZ>h)stormZ=-h;
+      ring.visible=true;ring.scale.set(stormR,stormR,1);ring.position.set(stormX,HMAX+5,stormZ);}
+    else ring.visible=false;
+    simulate(0.016);simulate(0.016);
+    decayFlow();relaxPond(0.032,HOURS_PER_SEC*0.032);
+    // avance del tiempo simulado y de la lluvia acumulada
+    const dMin=HOURS_PER_SEC*0.032*60;        // minutos simulados por frame
+    if(eventActive){
+      elapsedMin+=dMin;accumMM+=iMMH*(dMin/60);   // mm = intensidad(mm/h) × horas
+      if(eventDurMin>0&&elapsedMin>=eventDurMin){ // se cumplió la duración → deja de llover
+        raining=false;eventActive=false;eventBtn.classList.remove('on');
+        eventBtn.lastChild.textContent='Iniciar evento de lluvia';}
+    }
+    for(let i=0;i<N;i++)aFlow[i]=flow[i];flowGeo.attributes.aFlow.needsUpdate=true;
+    if(frame%3===0)buildWalls();
+    dGeo.attributes.position.needsUpdate=true;dGeo.attributes.aColor.needsUpdate=true;
+    dGeo.attributes.aAlpha.needsUpdate=true;dGeo.attributes.aSize.needsUpdate=true;
+  }
+  renderer.render(scene,camera);
+  frame++;if(frame%8===0)readouts();
+  fpsC++;const now=performance.now();if(now-fpsT>=1000){rFps.textContent=fpsC;fpsC=0;fpsT=now;}}
+
+// =================== controles ===================
+let paused=false;
+const pauseBtn=document.getElementById('pauseBtn');
+pauseBtn.onclick=()=>{paused=!paused;pauseBtn.textContent=paused?'Reanudar':'Pausa';pauseBtn.classList.toggle('paused',paused);};
+document.getElementById('stormBtn').onclick=()=>{let s=0;for(let i=0;i<activeCount&&s<1800;i++){if(st[i]===-1){spawn(i);s++;}}};
+document.getElementById('resetBtn').onclick=()=>{flow.fill(0);depth.fill(0);painted.fill(0);refreshImp();
+  for(let i=0;i<N;i++)wetTime[i]=antecedent*4;for(let i=0;i<MAXP;i++){st[i]=-1;dA[i]=0;}
+  elapsedMin=0;accumMM=0;eventActive=false;raining=true;
+  eventBtn.classList.remove('on');eventBtn.lastChild.textContent='Iniciar evento de lluvia';};
+const eventBtn=document.getElementById('eventBtn');
+eventBtn.onclick=()=>{
+  if(eventActive){                      // detener manualmente
+    eventActive=false;raining=false;eventBtn.classList.remove('on');
+    eventBtn.lastChild.textContent='Iniciar evento de lluvia';
+  }else{                                // iniciar evento cronometrado desde cero
+    elapsedMin=0;accumMM=0;eventActive=true;raining=true;
+    eventBtn.classList.add('on');
+    eventBtn.lastChild.textContent=eventDurMin>0?'Detener evento':'Lloviendo… (detener)';
+  }};
+const durEl=document.getElementById('dur'),vDur=document.getElementById('vDur');
+durEl.oninput=()=>{eventDurMin=+durEl.value;
+  vDur.textContent=eventDurMin===0?'∞ continua':(eventDurMin<60?eventDurMin+' min':(Math.floor(eventDurMin/60))+'h '+(eventDurMin%60)+'min');
+  fill(durEl);};
+const paintBtn=document.getElementById('paintBtn');
+paintBtn.onclick=()=>{paintMode=!paintMode;paintBtn.classList.toggle('on',paintMode);elc.classList.toggle('paint',paintMode);};
+const toggleUi=document.getElementById('toggleUi'),controlsEl=document.getElementById('controls'),readoutEl=document.getElementById('readout');
+let uiHidden=false;
+toggleUi.onclick=()=>{uiHidden=!uiHidden;controlsEl.classList.toggle('hide',uiHidden);readoutEl.classList.toggle('hide',uiHidden);
+  toggleUi.lastChild.textContent=uiHidden?'Mostrar':'Ocultar';};
+
+function fill(el){const p=(el.value-el.min)/(el.max-el.min)*100;el.style.background=`linear-gradient(90deg,var(--accent) ${p}%,rgba(255,255,255,0.12) ${p}%)`;}
+const rainEl=document.getElementById('rain'),vRain=document.getElementById('vRain');
+rainEl.oninput=()=>{activeCount=Math.floor(MAXP*rainEl.value/100);iMMH=rainEl.value/100*120;
+  vRain.textContent=Math.round(iMMH)+' mm/h';fill(rainEl);};
+const windEl=document.getElementById('wind'),vWind=document.getElementById('vWind');
+windEl.oninput=()=>{wind=+windEl.value;const a=Math.abs(windEl.value);vWind.textContent=a<10?'calma':(windEl.value<0?'◀ ':'▶ ')+(a<55?'leve':'fuerte');fill(windEl);};
+const sizeEl=document.getElementById('size'),vSize=document.getElementById('vSize');
+sizeEl.oninput=()=>{sizeMul=sizeEl.value/100;vSize.textContent=sizeEl.value<55?'fino':sizeEl.value<120?'medio':'grueso';fill(sizeEl);};
+const permEl=document.getElementById('perm'),vPerm=document.getElementById('vPerm');
+permEl.oninput=()=>{permMul=permEl.value/100;vPerm.textContent='×'+permMul.toFixed(permMul<1?2:1);fill(permEl);};
+const permCityEl=document.getElementById('permCity'),vPermCity=document.getElementById('vPermCity');
+permCityEl.oninput=()=>{impInfil=+permCityEl.value/10;vPermCity.textContent=impInfil.toFixed(1)+' mm/h';fill(permCityEl);};
+const antEl=document.getElementById('ant'),vAnt=document.getElementById('vAnt');
+antEl.oninput=()=>{antecedent=antEl.value/100;for(let i=0;i<N;i++)wetTime[i]=antecedent*4;
+  vAnt.textContent=antEl.value<33?'seco':antEl.value<66?'media':'saturado';fill(antEl);};
+[rainEl,windEl,sizeEl,durEl,permEl,permCityEl,antEl].forEach(fill);
+
+const rainSeg=document.getElementById('rainSeg');
+rainSeg.onclick=e=>{const b=e.target.closest('button');if(!b)return;
+  rainSeg.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  rainMode=b.dataset.m;if(rainMode==='local'){stormX=0;stormZ=-WORLD*0.3;}};
+const soilSeg=document.getElementById('soilSeg');
+soilSeg.onclick=e=>{const b=e.target.closest('button');if(!b)return;
+  soilSeg.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  soil=SOILS[b.dataset.s];};
+const seg=document.getElementById('terrainSeg');
+seg.onclick=e=>{const b=e.target.closest('button');if(!b)return;
+  seg.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');rebuild(b.dataset.t);};
+
+function rebuild(kind){buildTerrain(kind);setHeights();refreshImp();buildWalls();
+  const tex=bakeTexture();if(terrainMat.map)terrainMat.map.dispose();terrainMat.map=tex;terrainMat.needsUpdate=true;
+  buildSkirt();for(let i=0;i<MAXP;i++){st[i]=-1;dA[i]=0;}}
+
+rebuild('ciudad');updateCam();
+raining=true;
+const ld=document.getElementById('load');ld.style.opacity=0;setTimeout(()=>ld.remove(),450);
+animate();
+})();
+</script>
+</body>
+</html>
